@@ -1,0 +1,55 @@
+name: 木木
+
+on:
+  schedule:
+    # GitHub 用 UTC 時間，台灣 = UTC+8
+    - cron: "12 1 * * *"     # 發文：台灣 09:12
+    - cron: "7 5 * * *"      # 發文：台灣 13:07
+    - cron: "23 13 * * *"    # 發文：台灣 21:23
+    - cron: "41 0-15/2 * * *" # 回留言：台灣 08:41 起每 2 小時，到 23:41
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "post 或 reply"
+        default: "post"
+      dry_run:
+        description: "1 = 只測試不發文"
+        default: "1"
+
+permissions:
+  contents: write   # 發過的照片要記在 photos/used.txt
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: 決定模式
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "mode=${{ inputs.mode }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.schedule }}" = "41 0-15/2 * * *" ]; then
+            echo "mode=reply" >> $GITHUB_OUTPUT
+          else
+            echo "mode=post" >> $GITHUB_OUTPUT
+          fi
+      - run: python bot.py ${{ steps.mode.outputs.mode }}
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run || '0' }}
+          PHOTO_BASE_URL: ${{ vars.PHOTO_BASE_URL }}
+      - name: 記錄發過的照片
+        run: |
+          if [ -n "$(git status --porcelain photos/used.txt)" ]; then
+            git config user.name "mumu-bot"
+            git config user.email "mumu-bot@users.noreply.github.com"
+            git add photos/used.txt
+            git commit -m "木木發了照片"
+            git push
+          fi
